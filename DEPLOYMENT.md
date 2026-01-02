@@ -90,8 +90,9 @@ This guide will help you deploy your Social Media Feedback Analysis application 
 2. Connect your GitHub repository
 3. Configure:
    - **Name**: `feedback-analysis-frontend`
-   - **Build Command**: `cd frontend && npm install && npm run build`
-   - **Publish Directory**: `frontend/build`
+   - **Root Directory**: `frontend` ⚠️ **IMPORTANT: Set this to `frontend`**
+   - **Build Command**: `npm install && npm run build`
+   - **Publish Directory**: `build` (not `frontend/build`)
 
 4. Add Environment Variable:
    - `REACT_APP_API_BASE=https://your-backend-name.onrender.com`
@@ -99,6 +100,11 @@ This guide will help you deploy your Social Media Feedback Analysis application 
 5. Click **"Create Static Site"**
 6. Wait for deployment
 7. Note your frontend URL: `https://your-frontend-name.onrender.com`
+
+**Important Notes:**
+- **Root Directory must be set to `frontend`** - This tells Render to use the `frontend` folder as the base
+- Build command should NOT include `cd frontend` because Root Directory already does that
+- Publish Directory should be just `build`, not `frontend/build`
 
 ### Step 4: Update CORS Settings
 
