@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect, useRef } from "react";
 import {
   Chart as ChartJS,
   ArcElement,
@@ -20,23 +20,16 @@ ChartJS.register(
   BarElement
 );
 
-const API_BASE = process.env.REACT_APP_API_BASE || "http://127.0.0.1:5000";
+// In development, use same-origin paths so CRA `proxy` forwards to Flask (avoids CORS issues).
+// Set REACT_APP_API_BASE when the API is on another host (e.g. production).
+const API_BASE = (() => {
+  const env = process.env.REACT_APP_API_BASE;
+  if (env && env.trim()) return env.replace(/\/$/, "");
+  if (process.env.NODE_ENV === "development") return "";
+  return "http://127.0.0.1:5000";
+})();
 
 const popularKeywords = ["iPhone 16", "Poco F7", "MacBook Air", "Samsung S24", "Nothing CMF"];
-const bgImages = [
-  "https://images.unsplash.com/photo-1498050108023-c5249f4df085?auto=format&fit=crop&w=900&q=60",
-  "https://images.unsplash.com/photo-1527443224154-dc6d412cda3f?auto=format&fit=crop&w=900&q=60",
-  "https://images.unsplash.com/photo-1495020689067-958852a7765e?auto=format&fit=crop&w=900&q=60",
-  "https://images.unsplash.com/photo-1511396275275-2a9e52a534dd?auto=format&fit=crop&w=900&q=60",
-  "https://images.unsplash.com/photo-1503736334956-4c8f8e92946d?auto=format&fit=crop&w=900&q=60",
-  "https://images.unsplash.com/photo-1502877828070-33dc21c7be1c?auto=format&fit=crop&w=900&q=60",
-  "https://images.unsplash.com/photo-1460925895917-afdab827c52f?auto=format&fit=crop&w=900&q=60",
-  "https://images.unsplash.com/photo-1518770660439-4636190af475?auto=format&fit=crop&w=900&q=60",
-  "https://images.unsplash.com/photo-1517336714731-489689fd1ca8?auto=format&fit=crop&w=900&q=60",
-  "https://images.unsplash.com/photo-1517245386807-bb43f82c33c4?auto=format&fit=crop&w=900&q=60",
-  "https://images.unsplash.com/photo-1517841905240-472988babdf9?auto=format&fit=crop&w=900&q=60",
-  "https://images.unsplash.com/photo-1512496015851-a90fb38ba796?auto=format&fit=crop&w=900&q=60",
-];
 
 function App() {
   const [query, setQuery] = useState("");
@@ -44,6 +37,12 @@ function App() {
   const [results, setResults] = useState(null);
   const [error, setError] = useState(null);
   const [selectedKeyword, setSelectedKeyword] = useState(null);
+  const [selectedPlatform, setSelectedPlatform] = useState(null);
+  const [selectedSentiment, setSelectedSentiment] = useState(null);
+
+  const youtubeSectionRef = useRef(null);
+  const redditSectionRef = useRef(null);
+  const filteredSectionRef = useRef(null);
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -52,7 +51,7 @@ function App() {
     setLoading(true);
     setError(null);
     setResults(null);
-    setSelectedKeyword(null); // Reset selected keyword on new search
+    setSelectedKeyword(null); 
     
     try {
       const response = await fetch(`${API_BASE}/analyze?query=${encodeURIComponent(query)}`);
@@ -69,7 +68,17 @@ function App() {
     }
   };
 
-  // Filter data by selected keyword
+  const uniqueByText = (items) => {
+    const seen = new Set();
+    return (items || []).filter((item) => {
+      if (!item || !item.text) return false;
+      const key = item.text.trim().toLowerCase();
+      if (!key || seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    });
+  };
+
   const getFilteredData = () => {
     if (!selectedKeyword || !results) return null;
 
@@ -80,15 +89,20 @@ function App() {
       items: []
     };
 
-    // Search through all platforms for items containing the keyword
+    const seenTexts = new Set();
+
     Object.entries(results.platforms).forEach(([platform, data]) => {
       const platformItems = [];
       
-      // Use all_items if available, otherwise fall back to sample_items
+     
       const itemsToSearch = data.all_items || data.sample_items || [];
       
       itemsToSearch.forEach(item => {
-        if (item.text && item.text.toLowerCase().includes(selectedKeyword.toLowerCase())) {
+        if (!item || !item.text) return;
+        const normalizedText = item.text.trim().toLowerCase();
+        if (!normalizedText || seenTexts.has(normalizedText)) return;
+        if (item.text.toLowerCase().includes(selectedKeyword.toLowerCase())) {
+          seenTexts.add(normalizedText);
           platformItems.push({
             ...item,
             platform: platform
@@ -109,24 +123,95 @@ function App() {
     return filtered.totalItems > 0 ? filtered : null;
   };
 
+  const getSentimentFilteredData = (sentiment) => {
+    if (!results || !results.platforms) return null;
+
+    const filtered = {
+      sentiment,
+      platforms: {},
+      totalItems: 0,
+      items: [],
+    };
+
+    const seenTexts = new Set();
+
+    Object.entries(results.platforms).forEach(([platform, data]) => {
+      const itemsToSearch = data.all_items || data.sample_items || [];
+
+      const platformItems = itemsToSearch
+        .filter((item) => {
+          if (!item || !item.text) return false;
+          const normalizedText = item.text.trim().toLowerCase();
+          if (!normalizedText || seenTexts.has(normalizedText)) return false;
+          if (sentiment !== "all" && item.sentiment !== sentiment) return false;
+          seenTexts.add(normalizedText);
+          return true;
+        })
+        .map((item) => ({
+          ...item,
+          platform,
+        }));
+
+      if (platformItems.length > 0) {
+        filtered.platforms[platform] = {
+          items: platformItems,
+          count: platformItems.length,
+        };
+        filtered.items.push(...platformItems);
+        filtered.totalItems += platformItems.length;
+      }
+    });
+
+    return filtered.totalItems > 0 ? filtered : null;
+  };
+
   const filteredData = getFilteredData();
+  const sentimentFilteredData = selectedSentiment
+    ? getSentimentFilteredData(selectedSentiment)
+    : null;
+  const activeFilterData = filteredData || sentimentFilteredData;
+
+  const handleSentimentClick = (sentiment) => {
+    setSelectedSentiment((prev) => (prev === sentiment ? null : sentiment));
+    // when using sentiment filter, clear any keyword filter
+    setSelectedKeyword(null);
+  };
+
+  let mood = "mood-neutral";
+  if (results && results.combined && results.combined.sentiment_counts) {
+    const { positive = 0, negative = 0 } = results.combined.sentiment_counts;
+    if (positive > negative) {
+      mood = "mood-positive";
+    } else if (negative > positive) {
+      mood = "mood-negative";
+    }
+  }
+
+  useEffect(() => {
+    if (selectedPlatform === 'youtube' && youtubeSectionRef.current) {
+      youtubeSectionRef.current.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }
+    if (selectedPlatform === 'reddit' && redditSectionRef.current) {
+      redditSectionRef.current.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }
+  }, [selectedPlatform]);
+
+  useEffect(() => {
+    if (selectedSentiment && filteredSectionRef.current && activeFilterData) {
+      filteredSectionRef.current.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }
+  }, [selectedSentiment, activeFilterData]);
 
   return (
     <>
-      <div className="bg-marquee">
-        <div className="marquee-track">
-          {bgImages.concat(bgImages).map((src, i) => (
-            <div key={`bg-a-${i}`} className="marquee-img" style={{ backgroundImage: `url(${src})` }} />
-          ))}
-        </div>
-        <div className="marquee-track reverse">
-          {bgImages.concat(bgImages).map((src, i) => (
-            <div key={`bg-b-${i}`} className="marquee-img" style={{ backgroundImage: `url(${src})` }} />
-          ))}
-        </div>
+      <div className={`bg-system ${mood}`}>
+        <div className="bg-grid" />
+        <div className="bg-orbit bg-orbit-1" />
+        <div className="bg-orbit bg-orbit-2" />
+        <div className="bg-orbit bg-orbit-3" />
       </div>
 
-      <div className="page">
+      <div className={`page ${mood}`}>
       <header className="hero">
         <div className="badge">Real-time feedback</div>
         <h1>Search product buzz across platforms</h1>
@@ -169,7 +254,11 @@ function App() {
       {error && (
         <section className="card error">
           <p className="error-message">⚠️ {error}</p>
-          <p className="error-hint">Make sure the backend is running on {API_BASE}</p>
+          <p className="error-hint">
+            {API_BASE
+              ? `Start the Flask backend at ${API_BASE} (e.g. cd backend && flask --app app run --debug).`
+              : "Start the Flask backend on port 5000 (e.g. cd backend && flask --app app run --debug), then restart npm start if you just added proxy."}
+          </p>
         </section>
       )}
 
@@ -189,7 +278,7 @@ function App() {
 
       {results && (
         <>
-          {/* Summary Section - Displayed First */}
+          {}
           <section className="card summary-card fade-in">
             <div className="summary-header">
               <h2>Analysis Summary</h2>
@@ -200,19 +289,27 @@ function App() {
             </div>
           </section>
 
-          {/* Detailed Results Section - Displayed Below */}
+          {}
           <section className="card results fade-in" style={{ animationDelay: '0.2s' }}>
             <div className="results-header">
               <h3>Detailed Analysis</h3>
             </div>
 
             <div className="stats-grid">
-            <div className="stat-card animate-in" style={{ animationDelay: '0.1s' }}>
+            <div
+              className={`stat-card animate-in filterable ${selectedSentiment === 'all' ? 'active' : ''}`}
+              style={{ animationDelay: '0.1s' }}
+              onClick={() => handleSentimentClick('all')}
+            >
               <div className="stat-icon">📊</div>
               <div className="stat-label">Total Items</div>
               <div className="stat-value">{results.combined.total_items}</div>
             </div>
-            <div className="stat-card positive animate-in" style={{ animationDelay: '0.2s' }}>
+            <div
+              className={`stat-card positive animate-in filterable ${selectedSentiment === 'positive' ? 'active' : ''}`}
+              style={{ animationDelay: '0.2s' }}
+              onClick={() => handleSentimentClick('positive')}
+            >
               <div className="stat-icon">👍</div>
               <div className="stat-label">Positive</div>
               <div className="stat-value">{results.combined.sentiment_counts.positive}</div>
@@ -222,7 +319,11 @@ function App() {
                   : 0}%
               </div>
             </div>
-            <div className="stat-card neutral animate-in" style={{ animationDelay: '0.3s' }}>
+            <div
+              className={`stat-card neutral animate-in filterable ${selectedSentiment === 'neutral' ? 'active' : ''}`}
+              style={{ animationDelay: '0.3s' }}
+              onClick={() => handleSentimentClick('neutral')}
+            >
               <div className="stat-icon">😐</div>
               <div className="stat-label">Neutral</div>
               <div className="stat-value">{results.combined.sentiment_counts.neutral}</div>
@@ -232,7 +333,11 @@ function App() {
                   : 0}%
               </div>
             </div>
-            <div className="stat-card negative animate-in" style={{ animationDelay: '0.4s' }}>
+            <div
+              className={`stat-card negative animate-in filterable ${selectedSentiment === 'negative' ? 'active' : ''}`}
+              style={{ animationDelay: '0.4s' }}
+              onClick={() => handleSentimentClick('negative')}
+            >
               <div className="stat-icon">👎</div>
               <div className="stat-label">Negative</div>
               <div className="stat-value">{results.combined.sentiment_counts.negative}</div>
@@ -371,10 +476,104 @@ function App() {
                       <strong>Top keywords:</strong> {data.top_keywords.slice(0, 5).join(", ")}
                     </div>
                   )}
+                  {(platform === 'youtube' || platform === 'reddit') && (data.all_items || data.sample_items)?.length > 0 && (
+                    <button
+                      type="button"
+                      className="view-comments-btn"
+                      onClick={() =>
+                        setSelectedPlatform(
+                          selectedPlatform === platform ? null : platform
+                        )
+                      }
+                    >
+                      {selectedPlatform === platform
+                        ? (platform === 'youtube' ? 'Hide comments' : 'Hide posts')
+                        : (platform === 'youtube' ? 'View comments' : 'View posts')}
+                    </button>
+                  )}
                 </div>
               ))}
             </div>
           </div>
+
+          {selectedPlatform === 'youtube' && results.platforms.youtube && (
+            <div
+              className="youtube-comments-section platform-items-section"
+              ref={youtubeSectionRef}
+            >
+              <h3>Top YouTube Comments</h3>
+              <div className="filtered-items-list">
+                {uniqueByText(results.platforms.youtube.all_items || results.platforms.youtube.sample_items || []).map(
+                  (item, idx) => (
+                    <div key={idx} className="filtered-item-card">
+                      <div className="item-sentiment-badge">
+                        <span className={`sentiment-indicator ${item.sentiment}`}>
+                          {item.sentiment === 'positive'
+                            ? '👍'
+                            : item.sentiment === 'negative'
+                            ? '👎'
+                            : '😐'}
+                        </span>
+                        <span className="sentiment-label">{item.sentiment}</span>
+                      </div>
+                      <p className="item-text">{item.text}</p>
+                      {item.video_url && (
+                        <a
+                          href={item.video_url}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="video-link"
+                        >
+                          Watch Video →
+                        </a>
+                      )}
+                    </div>
+                  )
+                )}
+              </div>
+            </div>
+          )}
+
+          {selectedPlatform === 'reddit' && results.platforms.reddit && (
+            <div
+              className="reddit-posts-section platform-items-section"
+              ref={redditSectionRef}
+            >
+              <h3>Reddit Posts</h3>
+              <div className="filtered-items-list">
+                {uniqueByText(results.platforms.reddit.all_items || results.platforms.reddit.sample_items || []).map(
+                  (item, idx) => (
+                    <div key={idx} className="filtered-item-card">
+                      <div className="item-sentiment-badge">
+                        <span className={`sentiment-indicator ${item.sentiment}`}>
+                          {item.sentiment === 'positive'
+                            ? '👍'
+                            : item.sentiment === 'negative'
+                            ? '👎'
+                            : '😐'}
+                        </span>
+                        <span className="sentiment-label">{item.sentiment}</span>
+                      </div>
+                      {item.subreddit && (
+                        <span className="item-meta">r/{item.subreddit}</span>
+                      )}
+                      <p className="item-text">{item.text}</p>
+                      {item.url && (
+                        <a
+                          href={item.url}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="video-link"
+                        >
+                          View on Reddit →
+                        </a>
+                      )}
+                    </div>
+                  )
+                )}
+              </div>
+            </div>
+          )}
 
           {results.combined.top_keywords.length > 0 && (
             <div className="keywords-section">
@@ -402,19 +601,26 @@ function App() {
             </div>
           )}
 
-          {/* Filtered Results Section */}
-          {filteredData && (
-            <div className="filtered-results-section fade-in">
+          {}
+          {activeFilterData && (
+            <div
+              className="filtered-results-section fade-in"
+              ref={filteredSectionRef}
+            >
               <div className="filtered-header">
                 <h3>
                   <span className="filter-icon">🔍</span>
-                  Results for "{filteredData.keyword}"
+                  {filteredData
+                    ? `Results for "${activeFilterData.keyword}"`
+                    : selectedSentiment === 'all'
+                    ? 'All items'
+                    : `Showing ${selectedSentiment} items`}
                 </h3>
-                <span className="filter-count">{filteredData.totalItems} items found</span>
+                <span className="filter-count">{activeFilterData.totalItems} items found</span>
               </div>
               
               <div className="filtered-items">
-                {Object.entries(filteredData.platforms).map(([platform, platformData]) => (
+                {Object.entries(activeFilterData.platforms).map(([platform, platformData]) => (
                   <div key={platform} className="filtered-platform">
                     <div className="filtered-platform-header">
                       <span className="platform-icon">

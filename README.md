@@ -5,7 +5,7 @@ A real-time social media feedback analysis application that collects and analyze
 ## Features
 
 - 🔍 **Multi-Platform Analysis**: Collect feedback from Twitter, Reddit, and YouTube
-- 📊 **Sentiment Analysis**: Analyze sentiment using VADER sentiment analysis
+- 📊 **Sentiment Analysis**: VADER by default; optional Groq classification when `GROQ_API_KEY` is set
 - 📈 **Visual Analytics**: Interactive charts and graphs
 - 🎯 **Keyword Extraction**: Identify key topics and trends
 - 🚀 **Real-time Data**: Live data collection from social media platforms
@@ -21,6 +21,7 @@ A real-time social media feedback analysis application that collects and analyze
 ### Backend
 - Flask (Python)
 - VADER Sentiment Analysis
+- Groq API (summary + optional sentiment)
 - Twitter API (Tweepy)
 - Reddit API (PRAW)
 - YouTube Data API v3
@@ -73,36 +74,28 @@ npm start
 
 Frontend will run on `http://localhost:3000`
 
-## API Keys Setup
+## API keys
 
-See [backend/API_SETUP.md](./backend/API_SETUP.md) for detailed instructions on obtaining API keys.
-
-**Note:** The application works with mock data if API keys are not provided, allowing you to test without setting up APIs first.
+Copy `backend/.env.example` to `backend/.env` and fill in the keys you need. At minimum, set **`GROQ_API_KEY`** for the Analysis Summary and (optionally) AI sentiment. Reddit, YouTube, and Twitter keys enable live data; without them, the collector may use fallbacks or return fewer results depending on configuration.
 
 ## Deployment
 
-See [DEPLOYMENT.md](./DEPLOYMENT.md) for comprehensive deployment instructions.
-
-### Quick Deploy Options:
-- **Render.com** (Recommended - Free tier available)
-- **Railway.app** (Simple deployment)
-- **VPS** (DigitalOcean, AWS, etc.)
+Deploy the Flask app (e.g. `gunicorn app:app`) with the same environment variables as `.env`. Point your frontend `REACT_APP_API_BASE` at the deployed API URL.
 
 ## Project Structure
 
 ```
 .
-├── backend/           # Flask API backend
-│   ├── app.py        # Main Flask application
-│   ├── modules/      # Data collection and NLP modules
-│   ├── requirements.txt
-│   └── API_SETUP.md  # API keys setup guide
-├── frontend/          # React frontend
-│   ├── src/          # React source code
-│   ├── public/       # Static files
+├── backend/
+│   ├── app.py
+│   ├── .env.example
+│   ├── modules/
+│   └── requirements.txt
+├── frontend/
+│   ├── src/
+│   ├── public/
 │   └── package.json
-├── DEPLOYMENT.md      # Deployment guide
-└── README.md          # This file
+└── README.md
 ```
 
 ## API Endpoints
@@ -123,15 +116,11 @@ Example: `http://127.0.0.1:5000/analyze?query=iPhone%2016`
 
 ## Development
 
-### Running Tests
+### Smoke test
 ```bash
-# Backend API testing
-cd backend
-python test_apis.py
-
-# Frontend (if tests are added)
-cd frontend
-npm test
+# Backend (with server running)
+curl http://127.0.0.1:5000/health
+curl "http://127.0.0.1:5000/analyze?query=test"
 ```
 
 ### Building for Production
@@ -149,13 +138,18 @@ gunicorn app:app --bind 0.0.0.0:5000
 ## Environment Variables
 
 ### Backend (.env)
+
+See `backend/.env.example` for the full list. Essentials:
+
 ```bash
-TWITTER_BEARER_TOKEN=your_token
-REDDIT_CLIENT_ID=your_id
-REDDIT_CLIENT_SECRET=your_secret
-YOUTUBE_API_KEY=your_key
+GROQ_API_KEY=your_groq_key
+# Optional: GROQ_SUMMARY_MODEL, GROQ_SENTIMENT_MODEL, GROQ_SENTIMENT_BATCH_SIZE, USE_AI_SENTIMENT
+
+REDDIT_CLIENT_ID=...
+REDDIT_CLIENT_SECRET=...
 REDDIT_USER_AGENT=FeedbackAnalysisBot/1.0
-RESULT_LIMIT=50
+YOUTUBE_API_KEY=...
+RESULT_LIMIT=150
 ```
 
 ### Frontend
@@ -176,10 +170,7 @@ This project is open source and available under the MIT License.
 
 ## Support
 
-For issues and questions:
-- Check [DEPLOYMENT.md](./DEPLOYMENT.md) for deployment help
-- Check [backend/API_SETUP.md](./backend/API_SETUP.md) for API setup
-- Review application logs for errors
+Use `backend/.env.example`, `/health`, and application logs to verify configuration.
 
 ---
 
